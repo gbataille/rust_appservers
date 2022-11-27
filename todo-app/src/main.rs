@@ -6,30 +6,37 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
-    // Route all requests on "/" endpoint to anonymous handler.
-    //
-    // A handler is an async function which returns something that implements
-    // `axum::response::IntoResponse`.
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "todo-app=debug,tower_http=debug".into()),
+        ))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
-    // A closure or a function can be used as handler.
-
-    let app = Router::new()
-        .route("/", get(|| async { "Hello, world!" }))
-        .route("/json", post(json));
-
-    // Address that server will bind to.
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    println!("listening on {}", addr);
+
+    // logger sample
+    tracing::debug!(target: "todo-app", address = addr.to_string(), "listening on {}", addr);
 
     // Use `hyper::server::Server` which is re-exported through `axum::Server` to serve the app.
     axum::Server::bind(&addr)
         // Hyper server takes a make service.
-        .serve(app.into_make_service())
+        .serve(app().into_make_service())
         .await
         .unwrap();
+}
+
+fn app() -> Router {
+    Router::new()
+        .route("/", get(|| async { "Hello, world!" }))
+        .route("/json", post(json))
+        // Add a middleware for tracing
+        .layer(TraceLayer::new_for_http())
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -42,4 +49,3 @@ struct Todo {
 async fn json(extract::Json(payload): extract::Json<Todo>) -> Json<Todo> {
     Json(payload)
 }
-
