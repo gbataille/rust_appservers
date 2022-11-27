@@ -32,11 +32,20 @@ async fn main() {
 }
 
 fn app() -> Router {
-    Router::new()
+    let router = Router::new();
+    let router = setup_routes(router);
+    let router = setup_middlewares(router);
+    router
+}
+
+fn setup_routes(router: Router) -> Router {
+    router
         .route("/", get(|| async { "Hello, world!" }))
         .route("/json", post(json))
-        // Add a middleware for tracing
-        .layer(TraceLayer::new_for_http())
+}
+
+fn setup_middlewares(router: Router) -> Router {
+    router.layer(TraceLayer::new_for_http()) // Tracing of each request
 }
 
 #[derive(Deserialize, Serialize, Debug)]
