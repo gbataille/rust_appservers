@@ -3,11 +3,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+pub mod models;
 
 #[tokio::main]
 async fn main() {
@@ -48,14 +48,10 @@ fn setup_middlewares(router: Router) -> Router {
     router.layer(TraceLayer::new_for_http()) // Tracing of each request
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-struct Todo {
-    title: String,
-    description: String,
-}
-
 // Json input parsing - and output
-async fn json(extract::Json(payload): extract::Json<Todo>) -> Json<Todo> {
+async fn json(
+    extract::Json(payload): extract::Json<models::todo::Todo>,
+) -> Json<models::todo::Todo> {
     Json(payload)
 }
 
