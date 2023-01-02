@@ -3,6 +3,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use hyper::StatusCode;
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -41,11 +42,17 @@ fn app() -> Router {
 fn setup_routes(router: Router) -> Router {
     router
         .route("/", get(|| async { "Hello, world!" }))
+        .route("/404", get(return_404))
+        .route("/500", get(|| async { "500" }))
         .route("/json", post(json))
 }
 
 fn setup_middlewares(router: Router) -> Router {
     router.layer(TraceLayer::new_for_http()) // Tracing of each request
+}
+
+async fn return_404() -> Result<(), StatusCode> {
+    Err(StatusCode::NOT_FOUND)
 }
 
 // Json input parsing - and output
