@@ -1,9 +1,11 @@
 use axum::{
-    extract,
+    extract, http,
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
-use hyper::StatusCode;
+use hyper::{Request, StatusCode};
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -48,7 +50,22 @@ fn setup_routes(router: Router) -> Router {
 }
 
 fn setup_middlewares(router: Router) -> Router {
-    router.layer(TraceLayer::new_for_http()) // Tracing of each request
+    router
+        .layer(TraceLayer::new_for_http()) // Tracing of each request
+        // Only allow request with the Authorization heador set to GBA
+        .route_layer(middleware::from_fn(auth))
+}
+
+async fn auth<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode> {
+    let auth_header = req
+        .headers()
+        .get(http::header::AUTHORIZATION)
+        .and_then(|header| header.to_str().ok());
+
+    match auth_header {
+        Some(auth_header) if auth_header == "GBA" => Ok(next.run(req).await),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
 }
 
 async fn return_404() -> Result<(), StatusCode> {
