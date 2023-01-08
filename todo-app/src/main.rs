@@ -1,16 +1,18 @@
 use axum::{
-    extract, http,
-    middleware::{self, Next},
-    response::Response,
+    middleware,
     routing::{get, post},
-    Json, Router,
+    Router,
 };
-use hyper::{Request, StatusCode};
 use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+const MAX_CONTENT_LENGTH_BYTES: u64 = 1024 * 1024 * 2; // 100 MiB
+
+pub mod authentication;
+pub mod controllers;
 pub mod models;
+pub mod security;
 
 #[tokio::main]
 async fn main() {
@@ -44,39 +46,18 @@ fn app() -> Router {
 fn setup_routes(router: Router) -> Router {
     router
         .route("/", get(|| async { "Hello, world!" }))
-        .route("/404", get(return_404))
+        .route("/404", get(controllers::return_404))
         .route("/500", get(|| async { "500" }))
-        .route("/json", post(json))
+        .route("/json", post(controllers::json))
 }
 
 fn setup_middlewares(router: Router) -> Router {
     router
         .layer(TraceLayer::new_for_http()) // Tracing of each request
+        // Block request with crazy content length https://rustsec.org/advisories/RUSTSEC-2022-0055.html
+        .route_layer(middleware::from_fn(security::content_length_guard))
         // Only allow request with the Authorization heador set to GBA
-        .route_layer(middleware::from_fn(auth))
-}
-
-async fn auth<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode> {
-    let auth_header = req
-        .headers()
-        .get(http::header::AUTHORIZATION)
-        .and_then(|header| header.to_str().ok());
-
-    match auth_header {
-        Some(auth_header) if auth_header == "GBA" => Ok(next.run(req).await),
-        _ => Err(StatusCode::UNAUTHORIZED),
-    }
-}
-
-async fn return_404() -> Result<(), StatusCode> {
-    Err(StatusCode::NOT_FOUND)
-}
-
-// Json input parsing - and output
-async fn json(
-    extract::Json(payload): extract::Json<models::todo::Todo>,
-) -> Json<models::todo::Todo> {
-    Json(payload)
+        .route_layer(middleware::from_fn(authentication::header_auth))
 }
 
 #[cfg(test)]
@@ -96,7 +77,13 @@ mod tests {
         // `Router` implements `tower::Service<Request<Body>>` so we can
         // call it like any tower service, no need to run an HTTP server.
         let response = app
-            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(http::header::AUTHORIZATION, "GBA")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -116,6 +103,7 @@ mod tests {
                     .method(http::Method::POST)
                     .uri("/json")
                     .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                    .header(http::header::AUTHORIZATION, "GBA")
                     .body(Body::from(
                         serde_json::to_vec(
                             &json!({"title": "foo", "description": "Bar ja bulle!"}),
